@@ -10,12 +10,14 @@ List every discrete decision or action in your agent's workflow, then score each
 
 | Decision / action | Reversibility (H/M/L) | Blast radius (H/M/L) | Measurability (H/M/L) | Above / Below | HITL? |
 |---|---|---|---|---|---|
-| _Pull project state + recent GitHub/Jira activity_ | H | L | H | Below | · |
-| _Draft the weekly leadership status update_ | H | M | M | Below | spot-check |
-| _Propose next sprint's stories from the PRD (within cap)_ | M | M | M | Below | spot-check |
-| _Post the update to a channel / commit a ship date_ | L | H | M | Above | required |
-| _Mark a launch gate green / merge or close a ticket_ | L | H | M | Above | required |
-| _…_ | | | | | |
+| 1. Pull project state + activity | H | L | H | | |
+| 2. Decide relevant context | H | M | L | | |
+| 3. Draft the update | H | L | M | | |
+| 4. Decide tone / commitment level | H | M | L | | |
+| 5. Flag at-risk / escalation items | H | L | M | | |
+| 6. Choose what to escalate | H | M | M | | |
+| 7. Propose a story batch (capped) | H | L | M | | |
+| 8. Post an update / approve a company-wide one | L | H | M | | |
 
 ## Agent anatomy (sketch)
 
