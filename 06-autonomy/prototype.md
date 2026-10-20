@@ -21,7 +21,7 @@ Real screenshots of *your* Cortex running. These are the `00-build/CORTEX-ANATOM
 
 | # | Screenshot | What it shows | From |
 |---|---|---|---|
-| 1 | _[img]_ | happy-path run: a real drafted update + the HITL checkpoint (queued, not posted) | M2 |
+| 1 | ![M2 happy-path run](screenshots/m2-happy-success.png) | happy-path run: a real drafted update + the HITL checkpoint (queued, not posted). The heading check bounces the first draft (revision 1/2, no critic call), then all four review sections are present, the critic passes, and the run stops at **SUCCESS**: held for review, nothing posted, ~$0.10. | M2 |
 | 2 | _[img]_ | the critic rejecting a bad draft (revise/block) | M3 |
 | 3 | _[img]_ | a grounded update citing pulled activity + a caught hallucination | M4 |
 | 4 | _[img]_ | jailbreak refused + escalated | M5 |
