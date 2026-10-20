@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import anthropic
@@ -107,6 +108,13 @@ REQUIRED_SECTIONS = ("EXCLUDED ITEMS:", "COMMITMENTS:", "TRIGGERS CHECKED:",
 REQUIRED_DATA_TOOLS = ("get_project", "get_activity")
 MAX_TOOL_RETRIES = 3  # transient tool errors only; not-found is never retried
 
+# Validator fail-action + caps (M3 orchestration-map.md §5). Separate budgets so
+# format slips don't starve content fixes: 1 format retry (heading check) and
+# MAX_REVISIONS critic revisions. C/D failures cross the M1 line: escalate now.
+MAX_FORMAT_RETRIES = 1
+ESCALATE_CHECKS = {"C", "D"}
+CRITIC_LOG = OUTPUT_DIR / "critic-log.jsonl"  # every verdict, always logged
+
 # The three exits, plus what each means for the human.
 OUTCOMES = {
     "SUCCESS": "FINAL STATUS UPDATE (SUCCESS: sections present + critic passed, NOT posted)",
@@ -143,6 +151,17 @@ def emit_deliverable(which: str, draft: str, *, outcome: str,
             f"<!-- {reason} -->\n\n{draft.rstrip()}\n", encoding="utf-8")
         print(f"\nSaved draft -> {out.relative_to(Path(__file__).parent)}  "
               f"(for your review, nothing was posted)")
+
+
+def log_verdict(which: str, step: int, verdict: dict) -> None:
+    """Append one critic verdict to the run log (the 'log always' fail-action)."""
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    entry = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             "fixture": which, "step": step, "verdict": verdict.get("verdict"),
+             "failed_checks": verdict.get("failed_checks", []),
+             "reasons": verdict.get("reasons", [])}
+    with CRITIC_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 def call_tool(fn: str, args: dict) -> dict:
@@ -185,7 +204,8 @@ def run(which: str = "happy") -> None:
         {"role": "user", "content": f"PM task brief:\n\n{task['body']}"},
     ]
     source_log: list[str] = [task["body"]]
-    revisions = 0  # ONE count: heading-check bounces and critic rejections share it
+    format_retries = 0  # heading-check bounces (budget: MAX_FORMAT_RETRIES)
+    revisions = 0       # critic rejections on A/B/E (budget: MAX_REVISIONS)
     last_draft = ""
     escalations: list[str] = []  # triggers detected in code (loop-spec §3)
 
@@ -252,12 +272,12 @@ def run(which: str = "happy") -> None:
         if not model_escalated:
             missing = [s for s in REQUIRED_SECTIONS if s not in proposed]
             if missing:
-                if revisions >= MAX_REVISIONS:
-                    return stop("STUCK", f"revision cap ({MAX_REVISIONS}) hit; draft still "
-                                f"missing {missing}", proposed)
-                revisions += 1
-                print(f"\n-> heading check failed, missing {missing}; "
-                      f"revision {revisions}/{MAX_REVISIONS} (no critic call spent)")
+                if format_retries >= MAX_FORMAT_RETRIES:
+                    return stop("STUCK", f"format retry budget ({MAX_FORMAT_RETRIES}) used; "
+                                f"draft still missing {missing}", proposed)
+                format_retries += 1
+                print(f"\n-> heading check failed, missing {missing}; format retry "
+                      f"{format_retries}/{MAX_FORMAT_RETRIES} (no critic call spent)")
                 messages.append({"role": "assistant", "content": resp.content})
                 messages.append({"role": "user", "content":
                                  f"Your DONE output is missing required sections: {missing}. "
@@ -270,6 +290,7 @@ def run(which: str = "happy") -> None:
         bounds.cost += (verdict["_usage"]["prompt"] * PRICE_IN
                         + verdict["_usage"]["completion"] * PRICE_OUT) / 1_000_000
         print(json.dumps({k: v for k, v in verdict.items() if k != "_usage"}, indent=2))
+        log_verdict(which, step, verdict)
 
         if verdict["verdict"] == "pass":
             if model_escalated:
@@ -279,12 +300,19 @@ def run(which: str = "happy") -> None:
                    "your review. Nothing posted, no commitments made.")
             return stop("SUCCESS", "all four sections present + critic passed", proposed)
 
+        # Tiered fail-action: C/D cross the M1 line, so no second try at looking clean.
+        line_crossed = sorted(ESCALATE_CHECKS & set(verdict.get("failed_checks", [])))
+        if line_crossed:
+            return stop("ESCALATED", f"critic failed check(s) {line_crossed} (crosses the "
+                        "M1 line), no revision", proposed)
+
         if revisions >= MAX_REVISIONS:
-            return stop("STUCK", f"revision cap ({MAX_REVISIONS}) hit; critic still "
-                        "rejecting", last_draft)
+            return stop("STUCK", f"critic revision cap ({MAX_REVISIONS}) hit; still failing "
+                        f"{verdict.get('failed_checks', [])}", last_draft)
 
         revisions += 1
-        print(f"\n-> critic rejected; revision {revisions}/{MAX_REVISIONS}")
+        print(f"\n-> critic rejected {verdict.get('failed_checks', [])}; "
+              f"revision {revisions}/{MAX_REVISIONS}, back to Cortex with the reasons")
         messages.append({"role": "assistant", "content": resp.content})
         messages.append({"role": "user", "content":
                          "A validator rejected that for these reasons: "

@@ -14,15 +14,18 @@ VERDICT_SCHEMA = {
     "type": "object",
     "properties": {
         "verdict": {"type": "string", "enum": ["pass", "fail"]},
+        # Which of the M3 checks (A-E) failed, so the loop can route by tier.
+        "failed_checks": {"type": "array",
+                          "items": {"type": "string", "enum": ["A", "B", "C", "D", "E"]}},
         "reasons": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["verdict", "reasons"],
+    "required": ["verdict", "failed_checks", "reasons"],
     "additionalProperties": False,
 }
 
 
 def review(client, model: str, proposed_output: str, source_data: str) -> dict:
-    """Return {"verdict": "pass"|"fail", "reasons": [...]} for a proposed output."""
+    """Return {"verdict": "pass"|"fail", "failed_checks": [...], "reasons": [...]}."""
     resp = client.messages.create(
         model=model,
         max_tokens=16000,
@@ -39,7 +42,7 @@ def review(client, model: str, proposed_output: str, source_data: str) -> dict:
         text = next(b.text for b in resp.content if b.type == "text")
         verdict = json.loads(text)
     except (StopIteration, json.JSONDecodeError, TypeError):
-        verdict = {"verdict": "fail", "reasons": [
+        verdict = {"verdict": "fail", "failed_checks": [], "reasons": [
             f"critic returned unparseable output (stop_reason: {resp.stop_reason})"]}
     verdict["_usage"] = {"prompt": usage.input_tokens, "completion": usage.output_tokens}
     return verdict

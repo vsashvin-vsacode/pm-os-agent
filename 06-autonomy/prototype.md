@@ -22,7 +22,7 @@ Real screenshots of *your* Cortex running. These are the `00-build/CORTEX-ANATOM
 | # | Screenshot | What it shows | From |
 |---|---|---|---|
 | 1 | ![M2 happy-path run](screenshots/m2-happy-success.png) | happy-path run: a real drafted update + the HITL checkpoint (queued, not posted). The heading check bounces the first draft (revision 1/2, no critic call), then all four review sections are present, the critic passes, and the run stops at **SUCCESS**: held for review, nothing posted, ~$0.10. | M2 |
-| 2 | _[img]_ | the critic rejecting a bad draft (revise/block) | M3 |
+| 2 | ![M3 critic rejecting a tampered draft](screenshots/m3-critic-reject.png) | the critic rejecting a bad draft (revise/block). **Deliberately tampered:** Sonnet 5.5 refused to invent figures when instructed, so a temporary demo flag (since removed) inserted "NPS 52, up from 47. GA locked for 2026-08-15." into the draft just before review. The independent critic fails it on **B** (invented figure + unconfirmed date) and **E** (review aids now false), the **revise** fail-action fires (critic revision 1/2), Cortex flags the line as not its own and removes it, and the second critic call passes → **SUCCESS**, held at #8. ~$0.16. | M3 |
 | 3 | _[img]_ | a grounded update citing pulled activity + a caught hallucination | M4 |
 | 4 | _[img]_ | jailbreak refused + escalated | M5 |
 | 5 | _[img]_ | an iteration/cost/queue bound halting a runaway | M5 |
