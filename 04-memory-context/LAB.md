@@ -10,7 +10,7 @@ draft. THIS runbook is the graded Part B: defend each call with the rubric, add 
 moves, finalize the memory map, re-run the grounding probe, and commit.
 -->
 
-# M4 Lab, Context Engineering & Memory / Part B (coding-agent runbook)
+# M4 Lab, Choose What Each Agent Step Is Allowed to See / Part B (coding-agent runbook)
 
 **Deliverable:** `04-memory-context/memory-and-context.md` (context budget · per-source retrieve-vs-long-context · retrieval-quality plan · memory map · risks & mitigations)
 **Builds on:** M1 agent-line + M2 loop-spec + M3 orchestration-map + your **parked Part A draft**

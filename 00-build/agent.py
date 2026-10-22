@@ -68,9 +68,11 @@ TOOL_SCHEMAS = [
      "input_schema": {"type": "object", "properties": {
          "query": {"type": "string"}}, "required": []}},
     {"name": "get_roadmap",
-     "description": "Return the roadmap. Some items are flagged confidential/embargoed.",
+     "description": "Return this project's roadmap section plus the NAMES of embargoed "
+                    "projects (their details are withheld). Pass the run's project_id.",
      "input_schema": {"type": "object", "properties": {
-         "query": {"type": "string"}}, "required": []}},
+         "project_id": {"type": "string"},
+         "query": {"type": "string"}}, "required": ["project_id"]}},
     {"name": "get_norms", "description": "Return the team norms / PM playbook the agent must follow.",
      "input_schema": {"type": "object", "properties": {
          "query": {"type": "string"}}, "required": []}},
@@ -208,6 +210,7 @@ def run(which: str = "happy") -> None:
     revisions = 0       # critic rejections on A/B/E (budget: MAX_REVISIONS)
     last_draft = ""
     escalations: list[str] = []  # triggers detected in code (loop-spec §3)
+    called_tools: set[str] = set()  # which sources were actually pulled this run
 
     def stop(outcome: str, reason: str, draft: str) -> None:
         banner(f"STOP: {outcome}, {reason}. Run cost ≈ ${bounds.cost:.4f}")
@@ -234,6 +237,7 @@ def run(which: str = "happy") -> None:
                 fn = call.name
                 args = call.input or {}
                 result = call_tool(fn, args)
+                called_tools.add(fn)
                 source_log.append(f"{fn}({args}) -> {json.dumps(result)}")
                 print(f"\n[step {step}] TOOL {fn}({args})")
                 print(f"          -> {json.dumps(result)[:300]}")
@@ -266,6 +270,13 @@ def run(which: str = "happy") -> None:
             return stop("ESCALATED", "detected in code: " + "; ".join(escalations), proposed)
 
         model_escalated = "ESCALATE:" in proposed and "DONE:" not in proposed
+
+        # Stuck: a DONE draft built without a required source never reaches #8,
+        # even if the model flags the gap itself ("provisional Green"). M4 probe.
+        never_pulled = [t for t in REQUIRED_DATA_TOOLS if t not in called_tools]
+        if not model_escalated and never_pulled:
+            return stop("STUCK", f"required data never pulled: {never_pulled}; a DONE "
+                        "draft without it can't be grounded", proposed)
 
         # Definition of done: a DONE draft needs all four review aids. Checked in
         # code BEFORE spending a critic call; an ESCALATE goes to a human as is.

@@ -85,13 +85,50 @@ def search_past_updates(query: str = "") -> dict:
             "note": "prior updates + decisions for precedent, team norms still govern."}
 
 
-def get_roadmap(query: str = "") -> dict:
-    """Return the roadmap. Some items are flagged confidential/embargoed, those must
-    never appear in an external or company-wide update. `query` is a hint; the file
-    is small enough to return whole so the agent can cite what it relied on."""
-    text = (FIXTURES / "roadmap.md").read_text()
-    return {"query": query, "roadmap": text,
-            "warning": "items marked CONFIDENTIAL must not be shared outside the core team."}
+CONFIDENTIAL_MARKERS = ("CONFIDENTIAL", "EMBARGOED")
+
+
+def _roadmap_sections() -> list[tuple[str, str]]:
+    """Split roadmap.md into (heading, body) pairs, one per `## ` section."""
+    sections, heading, body = [], None, []
+    for line in (FIXTURES / "roadmap.md").read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            if heading:
+                sections.append((heading, "\n".join(body).strip()))
+            heading, body = line[3:].strip(), []
+        elif heading:
+            body.append(line)
+    if heading:
+        sections.append((heading, "\n".join(body).strip()))
+    return sections
+
+
+def get_roadmap(project_id: str = "", query: str = "") -> dict:
+    """Return the roadmap slice for ONE project (M4: retrieve, not long-context).
+
+    Routing: only the section for this run's project is returned.
+    Grading: any section marked CONFIDENTIAL / EMBARGOED is stripped in code before
+    the agent sees it; only the embargoed project NAMES come back, so the agent can
+    say what it left out without the details ever entering its context."""
+    sections = _roadmap_sections()
+    embargoed = [h.split(" (")[0] for h, _ in sections
+                 if any(m in h.upper() for m in CONFIDENTIAL_MARKERS)]
+    base = {"project_id": project_id, "query": query, "embargoed_names": embargoed,
+            "warning": "embargoed projects must never appear in any update; "
+                       "their details are withheld from this tool."}
+
+    record = _load_json("projects.json").get(str(project_id).strip())
+    if record is None:
+        return {**base, "error": "project_not_found", "section": None}
+
+    short_name = record["name"].split(" (")[0].lower()
+    for heading, body in sections:
+        if heading.lower().startswith(short_name):
+            if any(m in heading.upper() for m in CONFIDENTIAL_MARKERS):
+                return {**base, "section": None,
+                        "note": "this project is itself embargoed; core-team only."}
+            return {**base, "section": f"## {heading}\n{body}"}
+    return {**base, "section": None, "note": "no roadmap section for this project."}
 
 
 def get_norms(query: str = "") -> dict:
