@@ -22,11 +22,11 @@ List every discrete decision or action in your agent's workflow, then score each
 ## Agent anatomy (sketch)
 
 - **Model:** Claude Sonnet 5.5 by default. Escalate to Claude Opus 5.5 by task type (company-wide updates, or anything involving a Sev-1), which ties model spend to blast radius.
-- **Tools:** read: `get_project`, `get_activity`, `search_past_updates`, `get_roadmap` (flags confidential items), `get_norms` · queue: `propose_stories` (capped at 10, creates nothing). **No publish, create, close or merge tools, by design**, so the #8 line is enforced by what Cortex can't call.
+- **Tools:** read: `get_project`, `get_activity`, `search_past_updates`, `get_roadmap` (flags confidential items), `get_norms` · queue: `propose_stories` (capped at 8, creates nothing). **No publish, create, close or merge tools, by design**, so the #8 line is enforced by what Cortex can't call.
 - **Memory:** persist the human-owned sources (roadmap, norms, past *approved* updates, decision log); purge each run's working context and drafts. This keeps what counts as true above the line.
 - **Loop:** _placeholder, defined in M2 loop-spec.md_
-- **Bounds:** _placeholder, defined in M5 bounds-and-evals.md_
-- **Evals:** _placeholder, defined in M5 bounds-and-evals.md_
+- **Bounds:** max 6 iterations · 120s timeout · $0.50/run ($5/day console cap) · queue cap 8 · `STOP`-file kill switch · queued stories withdrawn on any halt. All enforced outside the model; see [M5 bounds-and-evals.md §1](../05-bounds-evals/bounds-and-evals.md).
+- **Evals:** 6 trajectory cases (EV-1 to EV-6, incl. recovery and jailbreak) replayed via R1–R5 before every change; see [M5 bounds-and-evals.md §3–§5](../05-bounds-evals/bounds-and-evals.md).
 
 ## The golden rule, applied
 

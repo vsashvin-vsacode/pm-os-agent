@@ -11,7 +11,7 @@ _One paragraph: the agent in action, end to end._
 ## How you built it
 
 - **Coding agent:** _which one you directed (Claude Code / Cursor / Codex)_
-- **Model + bounds:** _model used, max iterations, cost cap, queue cap_
+- **Model + bounds:** Claude Sonnet 5.5 (`claude-sonnet-5-5`) · max 6 iterations · $0.50/run cost cap ($5/day set in the Anthropic console) · queue cap 8 · 120s timeout · `00-build/STOP` kill switch (set in M5, see `05-bounds-evals/bounds-and-evals.md`)
 - **Repo / config:** _path to your build in `00-build/`_
 - **Live link:** _[shareable URL, optional bonus]_
 
