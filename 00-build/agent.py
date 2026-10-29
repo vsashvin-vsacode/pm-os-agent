@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,10 +48,14 @@ except ImportError:
 # --- Bounds (your M5 deliverable: tune these and justify them) ----------------
 MODEL = os.environ.get("CORTEX_MODEL", "claude-sonnet-5-5")
 MAX_TOKENS = 16000  # per-response output ceiling (the API requires one)
-MAX_ITERATIONS = int(os.environ.get("CORTEX_MAX_ITERATIONS", "8"))
+MAX_ITERATIONS = int(os.environ.get("CORTEX_MAX_ITERATIONS", "6"))
 MAX_REVISIONS = int(os.environ.get("CORTEX_MAX_REVISIONS", "2"))
 COST_CAP_USD = float(os.environ.get("CORTEX_COST_CAP_USD", "0.50"))
-MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "10"))
+MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "8"))
+TIMEOUT_S = int(os.environ.get("CORTEX_TIMEOUT_S", "120"))  # wall-clock cap per run
+# Kill switch: create this file (e.g. `New-Item 00-build/STOP`) to halt Cortex
+# before its next model or tool call. Delete it to re-arm.
+KILL_SWITCH = Path(__file__).parent / "STOP"
 # Rough $ per 1M tokens for your chosen model, set to match its pricing.
 PRICE_IN = float(os.environ.get("CORTEX_PRICE_IN_PER_M", "2.00"))
 PRICE_OUT = float(os.environ.get("CORTEX_PRICE_OUT_PER_M", "10.00"))
@@ -109,6 +114,9 @@ REQUIRED_SECTIONS = ("EXCLUDED ITEMS:", "COMMITMENTS:", "TRIGGERS CHECKED:",
 # Required data: a not-found here means stop now (stuck), never invent it.
 REQUIRED_DATA_TOOLS = ("get_project", "get_activity")
 MAX_TOOL_RETRIES = 3  # transient tool errors only; not-found is never retried
+# Test hook (M5 replay R5 / EV-3): name a tool here to make it throw on every
+# call, simulating a transient outage. Unset in normal runs.
+FAIL_TOOL = os.environ.get("CORTEX_FAIL_TOOL", "")
 
 # Validator fail-action + caps (M3 orchestration-map.md §5). Separate budgets so
 # format slips don't starve content fixes: 1 format retry (heading check) and
@@ -171,6 +179,8 @@ def call_tool(fn: str, args: dict) -> dict:
     last_error = None
     for attempt in range(1, MAX_TOOL_RETRIES + 1):
         try:
+            if fn == FAIL_TOOL:
+                raise RuntimeError(f"injected transient failure (CORTEX_FAIL_TOOL={fn})")
             return tools.TOOLS[fn](**args)
         except Exception as e:  # a tool crash is transient; not-found is a result
             last_error = e
@@ -192,8 +202,9 @@ def code_escalation_triggers(fn: str, result: dict) -> list[str]:
 
 
 def run(which: str = "happy") -> None:
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=TIMEOUT_S)  # a hung model call is cut off here
     bounds = Bounds()
+    started = time.monotonic()
     task = tools.get_task(which)
     if "error" in task:
         print(task)
@@ -211,19 +222,41 @@ def run(which: str = "happy") -> None:
     last_draft = ""
     escalations: list[str] = []  # triggers detected in code (loop-spec §3)
     called_tools: set[str] = set()  # which sources were actually pulled this run
+    queued_stories: list[str] = []  # stories queued this run; withdrawn if the run halts
 
     def stop(outcome: str, reason: str, draft: str) -> None:
         banner(f"STOP: {outcome}, {reason}. Run cost ≈ ${bounds.cost:.4f}")
+        # Rollback: a halted run's queued stories have no reviewed draft behind them,
+        # so they are withdrawn rather than left in the approval queue.
+        if outcome != "SUCCESS" and queued_stories:
+            withdrawn = "\n".join(f"- {s}" for s in queued_stories)
+            note = (f"WITHDRAWN (run ended {outcome}): {len(queued_stories)} stories queued "
+                    f"this run are withdrawn, not for approval:\n{withdrawn}")
+            draft = f"{draft.rstrip()}\n\n{note}" if draft.strip() else note
         emit_deliverable(which, draft, outcome=outcome, reason=reason, cost=bounds.cost)
+
+    def hard_stop() -> str | None:
+        """Kill switch + timeout, checked before every model and tool call."""
+        if KILL_SWITCH.exists():
+            return f"kill switch: {KILL_SWITCH.name} file present in 00-build/"
+        elapsed = time.monotonic() - started
+        if elapsed > TIMEOUT_S:
+            return f"timeout ({TIMEOUT_S}s) exceeded at {elapsed:.0f}s"
+        return None
 
     for step in range(1, MAX_ITERATIONS + 1):
         if bounds.over_cap():
             return stop("STUCK", f"cost cap ${COST_CAP_USD} hit at ${bounds.cost:.4f}",
                         last_draft)
+        if halt := hard_stop():
+            return stop("STUCK", halt, last_draft)
 
-        resp = client.messages.create(
-            model=MODEL, max_tokens=MAX_TOKENS, system=CORTEX_SYSTEM,
-            messages=messages, tools=TOOL_SCHEMAS)
+        try:
+            resp = client.messages.create(
+                model=MODEL, max_tokens=MAX_TOKENS, system=CORTEX_SYSTEM,
+                messages=messages, tools=TOOL_SCHEMAS)
+        except anthropic.APITimeoutError:
+            return stop("STUCK", f"timeout ({TIMEOUT_S}s): model call cut off", last_draft)
         bounds.add(resp.usage)
 
         if resp.stop_reason == "refusal":
@@ -236,8 +269,12 @@ def run(which: str = "happy") -> None:
             for call in (b for b in resp.content if b.type == "tool_use"):
                 fn = call.name
                 args = call.input or {}
+                if halt := hard_stop():
+                    return stop("STUCK", halt, last_draft)
                 result = call_tool(fn, args)
                 called_tools.add(fn)
+                if fn == "propose_stories" and result.get("status") == "queued_for_approval":
+                    queued_stories.extend(result.get("stories", []))
                 source_log.append(f"{fn}({args}) -> {json.dumps(result)}")
                 print(f"\n[step {step}] TOOL {fn}({args})")
                 print(f"          -> {json.dumps(result)[:300]}")

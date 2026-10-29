@@ -22,7 +22,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # Commitment bound (M5). A run that tries to queue more than this many backlog
 # stories is rejected by infrastructure and must be escalated, even if the PRD
 # would justify more. Auto-committing a flood of "real" work is the money analog.
-MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "10"))
+MAX_QUEUE_ITEMS = int(os.environ.get("CORTEX_MAX_QUEUE_ITEMS", "8"))
 
 
 def _load_json(name: str) -> dict:
